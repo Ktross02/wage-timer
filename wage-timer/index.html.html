@@ -1,0 +1,327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Wage Timer</title>
+  <meta name="theme-color" content="#111111">
+  <!-- iOS PWA bits -->
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <link rel="apple-touch-icon" href="icons/icon-192.png">
+  <link rel="manifest" href="manifest.webmanifest">
+  <style>
+    :root {
+      --bg: #0f0f14;
+      --fg: #f5f5f7;
+      --muted: #a1a1aa;
+      --accent: #3b82f6;
+      --accent-2: #16a34a;
+      --danger: #ef4444;
+      --card: #15151b;
+      --border: #26262f;
+    }
+    * { box-sizing: border-box; }
+    html, body {
+      height: 100%;
+      margin: 0;
+      font-family: -apple-system, system-ui, Segoe UI, Roboto, Inter, Helvetica, Arial, sans-serif;
+      background: var(--bg);
+      color: var(--fg);
+    }
+    .container {
+      min-height: 100%;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: space-between;
+      padding: 24px;
+      gap: 20px;
+    }
+    header { width: 100%; max-width: 760px; }
+    .card {
+      width: 100%;
+      max-width: 760px;
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 20px;
+      box-shadow: 0 6px 24px rgba(0,0,0,.35);
+    }
+    .row {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+      flex-wrap: wrap;
+    }
+    h1 {
+      font-size: 18px;
+      font-weight: 600;
+      margin: 0 0 6px 0;
+      letter-spacing: .2px;
+      color: var(--muted);
+    }
+    .big {
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      font-size: clamp(38px, 9vw, 72px);
+      margin: 10px 0;
+      line-height: 1.1;
+    }
+    .earned {
+      font-variant-numeric: tabular-nums;
+      text-align: center;
+      font-size: clamp(44px, 10vw, 84px);
+      font-weight: 700;
+      letter-spacing: .5px;
+    }
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      background: #0b1220;
+      border: 1px solid var(--border);
+      color: var(--fg);
+      border-radius: 999px;
+      padding: 10px 14px;
+      font-size: 14px;
+    }
+    .input {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: #0b0b10;
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+    }
+    .input input {
+      all: unset;
+      width: 100px;
+      font-variant-numeric: tabular-nums;
+      font-size: 18px;
+      text-align: right;
+    }
+    .btn {
+      appearance: none;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px 18px;
+      font-weight: 600;
+      font-size: 16px;
+      background: var(--accent);
+      color: white;
+      cursor: pointer;
+      transition: transform .02s ease-in-out, opacity .2s ease;
+    }
+    .btn:active { transform: translateY(1px) scale(.99); }
+    .btn.secondary { background: #23232b; color: var(--fg); border: 1px solid var(--border); }
+    .btn.success { background: var(--accent-2); }
+    .btn.danger { background: var(--danger); }
+    .stack { display: grid; gap: 12px; }
+    footer { opacity: .7; font-size: 12px; }
+    a { color: #9ab7ff; text-decoration: none; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <header class="row">
+      <div class="pill">💸 Wage Timer</div>
+      <div class="pill">Offline ready</div>
+    </header>
+
+    <div class="card stack">
+      <div class="row" style="justify-content: center;">
+        <div class="earned" id="earned">$0.00</div>
+      </div>
+      <div class="big" id="timer">00:00:00.0</div>
+      <div class="row" style="justify-content:center; gap:10px">
+        <button id="toggle" class="btn success">Start</button>
+        <button id="reset" class="btn secondary">Reset</button>
+      </div>
+    </div>
+
+    <div class="card stack">
+      <h1>Settings</h1>
+      <div class="row">
+        <label class="input" style="flex:1;">
+          <span>Hourly rate ($)</span>
+          <input type="number" id="rate" min="0" step="0.01" inputmode="decimal">
+        </label>
+        <button id="save" class="btn">Save</button>
+      </div>
+      <div class="row">
+        <div class="pill">Per-second rate: <span id="perSecond">$0.00</span>/sec</div>
+        <div class="pill">Per-minute rate: <span id="perMinute">$0.00</span>/min</div>
+      </div>
+    </div>
+
+    <footer>Tip: On iPhone, open in Safari and use <b>Share → Add to Home Screen</b> to install. • v1.0</footer>
+  </div>
+
+<script>
+// ===== Wage Timer App =====
+(function(){
+  const $ = (id) => document.getElementById(id);
+  const earnedEl = $("earned");
+  const timerEl = $("timer");
+  const toggleBtn = $("toggle");
+  const resetBtn = $("reset");
+  const rateInput = $("rate");
+  const saveBtn = $("save");
+  const perSecondEl = $("perSecond");
+  const perMinuteEl = $("perMinute");
+
+  // Load settings
+  const STORE_KEY = "wage-timer-state-v1";
+  const DEFAULT_RATE = 20.00;
+  let state = {
+    rate: DEFAULT_RATE,
+    running: false,
+    startedAt: null,        // ms epoch when started (if running)
+    accumulatedMs: 0        // total elapsed when not running
+  };
+
+  function load() {
+    try {
+      const raw = localStorage.getItem(STORE_KEY);
+      if (raw) {
+        const data = JSON.parse(raw);
+        Object.assign(state, data);
+      }
+    } catch(e){}
+    rateInput.value = (state.rate ?? DEFAULT_RATE).toFixed(2);
+    updateRates();
+    refreshUI();
+  }
+
+  function save() {
+    localStorage.setItem(STORE_KEY, JSON.stringify(state));
+  }
+
+  function msElapsed() {
+    let ms = state.accumulatedMs;
+    if (state.running && state.startedAt) {
+      ms += (Date.now() - state.startedAt);
+    }
+    return ms;
+  }
+
+  function formatTime(ms) {
+    const tenths = Math.floor((ms % 1000) / 100);
+    const totalSeconds = Math.floor(ms / 1000);
+    const s = totalSeconds % 60;
+    const totalMinutes = Math.floor(totalSeconds / 60);
+    const m = totalMinutes % 60;
+    const h = Math.floor(totalMinutes / 60);
+    const pad = (n) => String(n).padStart(2, "0");
+    return `${pad(h)}:${pad(m)}:${pad(s)}.${tenths}`;
+  }
+
+  function amountEarned(ms) {
+    const perMs = (state.rate / 3600_000); // dollars per millisecond
+    return ms * perMs;
+  }
+
+  let rafId = null;
+  function tick() {
+    const ms = msElapsed();
+    timerEl.textContent = formatTime(ms);
+    earnedEl.textContent = currency(amountEarned(ms));
+    rafId = requestAnimationFrame(tick);
+  }
+
+  function start() {
+    if (state.running) return;
+    state.running = true;
+    state.startedAt = Date.now();
+    toggleBtn.textContent = "Stop";
+    toggleBtn.classList.remove("success");
+    toggleBtn.classList.add("danger");
+    save();
+  }
+  function stop() {
+    if (!state.running) return;
+    state.accumulatedMs = msElapsed();
+    state.running = false;
+    state.startedAt = null;
+    toggleBtn.textContent = "Start";
+    toggleBtn.classList.remove("danger");
+    toggleBtn.classList.add("success");
+    save();
+  }
+  function reset() {
+    state.running = false;
+    state.startedAt = null;
+    state.accumulatedMs = 0;
+    toggleBtn.textContent = "Start";
+    toggleBtn.classList.remove("danger");
+    toggleBtn.classList.add("success");
+    save();
+  }
+
+  function currency(n) {
+    return n.toLocaleString(undefined, {style: "currency", currency: "USD"});
+  }
+
+  function updateRates() {
+    const perSecond = state.rate / 3600;
+    const perMinute = state.rate / 60;
+    perSecondEl.textContent = perSecond.toLocaleString(undefined, {style:"currency", currency:"USD", maximumFractionDigits:4});
+    perMinuteEl.textContent = perMinute.toLocaleString(undefined, {style:"currency", currency:"USD", maximumFractionDigits:4});
+  }
+
+  function refreshUI() {
+    if (state.running) {
+      toggleBtn.textContent = "Stop";
+      toggleBtn.classList.add("danger");
+      toggleBtn.classList.remove("success");
+    } else {
+      toggleBtn.textContent = "Start";
+      toggleBtn.classList.add("success");
+      toggleBtn.classList.remove("danger");
+    }
+    timerEl.textContent = formatTime(msElapsed());
+    earnedEl.textContent = currency(amountEarned(msElapsed()));
+  }
+
+  toggleBtn.addEventListener("click", () => {
+    state.running ? stop() : start();
+  });
+  resetBtn.addEventListener("click", reset);
+
+  saveBtn.addEventListener("click", () => {
+    const v = parseFloat(rateInput.value);
+    if (!isNaN(v) && v >= 0) {
+      state.rate = v;
+      updateRates();
+      save();
+    } else {
+      alert("Please enter a valid hourly rate.");
+    }
+  });
+
+  // Keep correct time when tab visibility changes
+  document.addEventListener("visibilitychange", () => {
+    // No special handling needed; msElapsed() references Date.now()
+    // But we refresh UI immediately on return
+    refreshUI();
+  });
+
+  // Animation loop
+  tick();
+
+  // Load persisted state
+  load();
+
+  // Register service worker for offline/PWA
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("./service-worker.js").catch(()=>{});
+    });
+  }
+})();
+</script>
+</body>
+</html>
